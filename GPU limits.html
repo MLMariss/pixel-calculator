@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Where your GPU runs out of room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF1F5; --panel:#FFFFFF; --ink:#18202B; --muted:#5A6677; --line:#CBD3DD;
+  --seg-draw:#5C7FAE; --seg-ray:#D9922E; --seg-bounce:#C8385A;
+  --gpu:#16897D; --warn:#C8385A; --grid:#B8C2CE; --edge:#18202B;
+  --nv:#5E9A1E; --amd:#C23B3B;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141A23; --panel:#1B232F; --ink:#E6EBF2; --muted:#93A0B2; --line:#2E3A4A;
+    --seg-draw:#7FA2D1; --seg-ray:#F0AE4E; --seg-bounce:#E8587A;
+    --gpu:#3CC9B8; --warn:#F0687F; --grid:#3A4757; --edge:#0A0E14;
+    --nv:#8CC63F; --amd:#F06464;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141A23; --panel:#1B232F; --ink:#E6EBF2; --muted:#93A0B2; --line:#2E3A4A;
+  --seg-draw:#7FA2D1; --seg-ray:#F0AE4E; --seg-bounce:#E8587A;
+  --gpu:#3CC9B8; --warn:#F0687F; --grid:#3A4757; --edge:#0A0E14;
+  --nv:#8CC63F; --amd:#F06464;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:"Barlow","Segoe UI",system-ui,-apple-system,sans-serif;font-size:16px;line-height:1.5}
+.wrap{height:100%;display:flex;flex-direction:column;padding:16px clamp(16px,2vw,40px) 16px}
+header{flex:none;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 28px;margin-bottom:12px}
+h1{font-family:"Barlow Semi Condensed","Arial Narrow",sans-serif;font-weight:700;font-size:clamp(28px,2.6vw,42px);line-height:1.05;letter-spacing:-0.01em;margin:0}
+header p{margin:0;color:var(--muted);font-size:17px;max-width:90ch}
+.layout{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:20px;align-items:stretch}
+body{overflow:hidden}
+#view{position:relative;height:100%;min-height:0;background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden;touch-action:none;cursor:grab;user-select:none}
+#view.grabbing{cursor:grabbing}
+#view canvas{display:block;width:100%;height:100%}
+aside{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px 6px;height:100%;min-height:0;overflow-y:auto}
+@media (max-width:1100px){
+  body{overflow:auto;height:auto}
+  .wrap{height:auto;display:block}
+  .layout{grid-template-columns:1fr}
+  #view{height:62vh;min-height:380px}
+  aside{height:auto;min-height:0;overflow:visible}
+}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lbl{position:absolute;left:0;top:0;white-space:nowrap;font-family:"Barlow Semi Condensed","Arial Narrow",sans-serif;font-weight:600;font-size:15px;color:var(--ink);transition:opacity .25s}
+.lbl.val{font-size:13px;background:var(--panel);padding:1px 7px;border-radius:6px;border:1px solid var(--line)}
+.lbl.val.over{color:var(--warn);border-color:var(--warn)}
+.lbl.axis{color:var(--muted);font-size:16px}
+.lbl.tick{color:var(--muted);font-size:12px;font-weight:500}
+.lbl.gpu{color:var(--gpu);font-weight:700;font-size:15px}
+.hint{position:absolute;left:14px;bottom:10px;font-size:13px;color:var(--muted);pointer-events:none}
+.cardtag{position:absolute;left:16px;top:12px;pointer-events:none}
+.cardtag b{display:block;font-family:"Barlow Semi Condensed","Arial Narrow",sans-serif;font-size:26px;font-weight:700;line-height:1.1}
+.cardtag span{font-size:14px;color:var(--muted)}
+.group{margin-bottom:20px}
+.group h2{font-family:"Barlow Semi Condensed","Arial Narrow",sans-serif;font-size:18px;font-weight:600;margin:0 0 8px}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button,.gpus button{font:inherit;font-size:14px;font-weight:500;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.seg button:hover,.gpus button:hover{border-color:var(--muted)}
+.seg button[aria-pressed="true"],.gpus button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.gpus .tier{display:grid;grid-template-columns:72px 1fr;gap:6px 10px;align-items:start;margin-bottom:10px}
+.gpus .tname{font-size:14px;color:var(--muted);padding-top:6px}
+.gpus .row{display:flex;flex-wrap:wrap;gap:6px}
+.gpus button{display:inline-flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.dot.nv{background:var(--nv)} .dot.amd{background:var(--amd)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--gpu);outline-offset:2px}
+input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
+.capval{font-family:"Barlow Semi Condensed","Arial Narrow",sans-serif;font-weight:700;font-size:21px;color:var(--gpu)}
+.small{font-size:14px;color:var(--muted);margin:4px 0 0}
+.legend{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:14px}
+.legend li{display:flex;align-items:center;gap:9px}
+.sw{width:14px;height:14px;border-radius:3px;flex:none}
+.sw.plane{border-radius:2px;opacity:.55}
+#rows{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+#rows li{border-top:1px solid var(--line);padding-top:8px;font-size:14px}
+#rows .top{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+#rows .st{color:var(--muted)}
+#rows .st.over{color:var(--warn)}
+#summary{margin:0;font-size:15px}
+.foot{color:var(--muted);font-size:13px;margin:0 0 14px;border-top:1px solid var(--line);padding-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Where your GPU runs out of room</h1>
+    <p>Work the graphics card has to do every second to hold 60 fps. Taller bar, more work. The flat sheet is what the chosen card can handle; anything poking through it won't reach 60 fps.</p>
+  </header>
+
+  <div class="layout">
+    <div id="view" aria-label="3D bar chart of GPU work per second by resolution and rendering mode">
+      <div id="labels"></div>
+      <div class="cardtag"><b id="cardName"></b><span id="cardNote"></span></div>
+      <div class="hint">Drag to turn, scroll to zoom</div>
+    </div>
+
+    <aside>
+      <div class="group">
+        <h2>Graphics card</h2>
+        <div class="gpus" id="gpus"></div>
+        <p class="small">Each card's limit is set from how it runs The Witcher 3 Remastered without rays. Cards marked * weren't in those benchmarks, so they're placed from their usual gap to tested cards.</p>
+      </div>
+      <div class="group">
+        <h2>Resolution</h2>
+        <div class="seg" id="resSeg" role="group" aria-label="Resolution"></div>
+      </div>
+      <div class="group">
+        <h2>Rendering mode</h2>
+        <div class="seg" id="modeSeg" role="group" aria-label="Rendering mode"></div>
+      </div>
+      <div class="group">
+        <h2>Set your own limit</h2>
+        <div class="capval" id="capVal"></div>
+        <input type="range" id="cap" min="50" max="2600" step="5" aria-label="GPU power in million units per second">
+      </div>
+      <div class="group">
+        <h2>What the bar is made of</h2>
+        <ul class="legend">
+          <li><span class="sw" style="background:var(--seg-draw)"></span>Drawing the picture the normal way</li>
+          <li><span class="sw" style="background:var(--seg-ray)"></span>One ray per pixel (first hit)</li>
+          <li><span class="sw" style="background:var(--seg-bounce)"></span>Bounced rays (path tracing only)</li>
+          <li><span class="sw plane" style="background:var(--gpu)"></span>Limit of the chosen card</li>
+        </ul>
+        <p class="small">The bars are what the game asks for and never change. Picking a card only moves the limit.</p>
+      </div>
+      <div class="group">
+        <h2>Selected bars</h2>
+        <p id="summary"></p>
+        <ul id="rows"></ul>
+      </div>
+      <p class="foot">1 unit is the work of fully drawing one pixel the normal way on a current NVIDIA card. Path tracing uses 2 bounces, the game's default. No upscaling or frame generation. Card limits come from published Witcher 3 Remastered results without rays (mainly TechSpot, September 2026), lined up so entry cards handle FHD, middle cards 2K and high-end cards 4K at 60 fps. AMD cards are weaker at path tracing than at normal drawing, so their limit is too generous for the path traced column. Running out of video memory on 8 GB cards at high resolutions isn't modelled. Estimates to show the scale of the work, not measurements.</p>
+    </aside>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  const RES=[
+    {id:'fhd',name:'FHD',full:'FHD (1080p)',px:1920*1080},
+    {id:'2k', name:'2K', full:'2K (1440p)', px:2560*1440},
+    {id:'4k', name:'4K', full:'4K (2160p)', px:3840*2160}
+  ];
+  const MODES=[
+    {id:'raster',name:'60 fps',      full:'60 fps, no rays',w:[1,0,0]},
+    {id:'rt',    name:'Ray traced',  full:'Ray traced',     w:[1,1,0]},
+    {id:'pt',    name:'Path traced', full:'Path traced',    w:[1,1,3]}
+  ];
+  // cap: million units per second the card can handle, set from normal (no-ray) performance
+  const GPUS=[
+    {tier:'High end',items:[
+      {id:'5090',   name:'RTX 5090',       brand:'nv', cap:887,est:false},
+      {id:'9070xt', name:'RX 9070 XT',     brand:'amd',cap:505,est:false},
+      {id:'7900xtx',name:'RX 7900 XTX',    brand:'amd',cap:500,est:true}
+    ]},
+    {tier:'Middle',items:[
+      {id:'5070',   name:'RTX 5070',       brand:'nv', cap:390,est:false},
+      {id:'4070',   name:'RTX 4070',       brand:'nv', cap:312,est:true},
+      {id:'9070',   name:'RX 9070',        brand:'amd',cap:425,est:false},
+      {id:'7800xt', name:'RX 7800 XT',     brand:'amd',cap:320,est:true}
+    ]},
+    {tier:'Entry',items:[
+      {id:'5060',   name:'RTX 5060',       brand:'nv', cap:192,est:false},
+      {id:'3060',   name:'RTX 3060',       brand:'nv', cap:135,est:true},
+      {id:'9060xt', name:'RX 9060 XT 16GB',brand:'amd',cap:232,est:false},
+      {id:'6600',   name:'RX 6600',        brand:'amd',cap:130, est:true}
+    ]}
+  ];
+  const ALL_GPUS=[].concat(...GPUS.map(t=>t.items));
+  const FPS=60, SCALE=250, GAP=2.4, BW=1.3;
+  const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let selRes='all', selMode='all';
+  let gpu=ALL_GPUS.find(g=>g.id==='5070');
+  let cap=gpu.cap, capShown=cap;
+  const capInput=document.getElementById('cap');
+
+  function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+  function fmt(m){return m>=1000?(Math.round(m/10)/100)+'B':Math.round(m)+'M';}
+  function fmtLong(m){return m>=1000?(Math.round(m/10)/100)+' billion':Math.round(m)+' million';}
+
+  const view=document.getElementById('view');
+  const labelsLayer=document.getElementById('labels');
+  const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+  view.insertBefore(renderer.domElement,view.firstChild);
+
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(34,1,0.1,200);
+  scene.add(new THREE.HemisphereLight(0xffffff,0x556677,0.8));
+  const dir=new THREE.DirectionalLight(0xffffff,0.7);
+  dir.position.set(-7,14,9); scene.add(dir);
+
+  const labels=[];
+  function addLabel(text,pos,cls){
+    const el=document.createElement('div');
+    el.className='lbl '+(cls||''); el.textContent=text;
+    labelsLayer.appendChild(el);
+    const o={el,pos}; labels.push(o); return o;
+  }
+
+  // Bars: fixed heights, these are the game's demands
+  const bars=[];
+  RES.forEach((r,ri)=>{
+    const z=(1-ri)*GAP;
+    MODES.forEach((m,mi)=>{
+      const x=(mi-1)*GAP;
+      let y=0; const parts=[];
+      m.w.forEach((w,si)=>{
+        if(!w) return;
+        const h=r.px*FPS*w/1e6/SCALE;
+        const geo=new THREE.BoxGeometry(BW,h,BW);
+        const mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({roughness:0.55,metalness:0.05,transparent:true,opacity:1}));
+        mesh.position.set(x,y+h/2,z); scene.add(mesh);
+        const edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({transparent:true,opacity:0.35}));
+        edge.position.copy(mesh.position); scene.add(edge);
+        parts.push({mesh,edge,si}); y+=h;
+      });
+      const total=r.px*FPS*m.w.reduce((a,b)=>a+b,0)/1e6;
+      const label=addLabel(fmt(total),new THREE.Vector3(x,y+0.42,z),'val');
+      bars.push({r,m,parts,total,label,op:1});
+    });
+  });
+
+  RES.forEach((r,ri)=>addLabel(r.name,new THREE.Vector3(-GAP-1.9,0,(1-ri)*GAP),'axis'));
+  MODES.forEach((m,mi)=>addLabel(m.name,new THREE.Vector3((mi-1)*GAP,0,GAP+1.9),'axis'));
+
+  // Vertical scale
+  const corner=-(GAP+BW/2+0.9);
+  const axisLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(corner,0,corner),new THREE.Vector3(corner,2600/SCALE,corner)]),new THREE.LineBasicMaterial());
+  scene.add(axisLine);
+  const tickMat=new THREE.LineBasicMaterial({transparent:true,opacity:0.5});
+  [500,1000,1500,2000,2500].forEach(val=>{
+    const y=val/SCALE;
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(corner,y,corner),new THREE.Vector3(corner+0.35,y,corner)]),tickMat));
+    addLabel(fmt(val),new THREE.Vector3(corner-0.6,y,corner),'tick');
+  });
+
+  let grid=null;
+  function makeGrid(col){
+    if(grid){scene.remove(grid);grid.geometry.dispose();grid.material.dispose();}
+    grid=new THREE.GridHelper(GAP*2+BW+2.4,8,col,col);
+    grid.material.transparent=true; grid.material.opacity=0.7; scene.add(grid);
+  }
+
+  // GPU limit plane
+  const span=GAP*2+BW+1.4;
+  const planeGeo=new THREE.PlaneGeometry(span,span); planeGeo.rotateX(-Math.PI/2);
+  const planeMat=new THREE.MeshBasicMaterial({transparent:true,opacity:0.2,side:THREE.DoubleSide,depthWrite:false});
+  const plane=new THREE.Mesh(planeGeo,planeMat); plane.renderOrder=10; scene.add(plane);
+  const planeEdge=new THREE.LineSegments(new THREE.EdgesGeometry(planeGeo),new THREE.LineBasicMaterial({transparent:true,opacity:0.9}));
+  planeEdge.renderOrder=11; scene.add(planeEdge);
+  const gpuLabel=addLabel('',new THREE.Vector3(span/2+0.3,0,span/2+0.3),'gpu');
+
+  function applyTheme(){
+    const seg=[css('--seg-draw'),css('--seg-ray'),css('--seg-bounce')], edge=css('--edge');
+    bars.forEach(b=>b.parts.forEach(p=>{p.mesh.material.color.set(seg[p.si]);p.edge.material.color.set(edge);}));
+    planeMat.color.set(css('--gpu')); planeEdge.material.color.set(css('--gpu'));
+    axisLine.material.color.set(css('--muted')); tickMat.color.set(css('--muted'));
+    makeGrid(css('--grid'));
+  }
+  applyTheme();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
+  new MutationObserver(applyTheme).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+  // Camera
+  const target=new THREE.Vector3(0.4,4.4,0);
+  let az=-0.62, pol=1.12, rad=20;
+  function fitRadius(){
+    const a=view.clientWidth/Math.max(1,view.clientHeight);
+    const vf=camera.fov*Math.PI/180, hf=2*Math.atan(Math.tan(vf/2)*a);
+    rad=7.6/Math.sin(Math.min(vf,hf)/2);
+  }
+  function updateCamera(){
+    camera.position.set(
+      target.x+rad*Math.sin(pol)*Math.sin(az),
+      target.y+rad*Math.cos(pol),
+      target.z+rad*Math.sin(pol)*Math.cos(az));
+    camera.lookAt(target);
+  }
+  let drag=null;
+  view.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY};view.setPointerCapture(e.pointerId);view.classList.add('grabbing');});
+  view.addEventListener('pointermove',e=>{
+    if(!drag) return;
+    const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag={x:e.clientX,y:e.clientY};
+    az-=dx*0.008; pol=Math.min(1.48,Math.max(0.3,pol-dy*0.006));
+  });
+  const endDrag=()=>{drag=null;view.classList.remove('grabbing');};
+  view.addEventListener('pointerup',endDrag); view.addEventListener('pointercancel',endDrag);
+  view.addEventListener('wheel',e=>{e.preventDefault();rad=Math.min(40,Math.max(10,rad*(1+e.deltaY*0.001)));},{passive:false});
+
+  function resize(){
+    const w=view.clientWidth,h=view.clientHeight;
+    renderer.setSize(w,h,false); camera.aspect=w/Math.max(1,h); camera.updateProjectionMatrix();
+  }
+  new ResizeObserver(()=>{resize();fitRadius();}).observe(view);
+  resize(); fitRadius();
+
+  // Controls
+  function buildSeg(el,items,get,set){
+    [{id:'all',name:'All'}].concat(items).forEach(it=>{
+      const b=document.createElement('button'); b.type='button'; b.textContent=it.name; b.dataset.id=it.id;
+      b.addEventListener('click',()=>{set(it.id);sync();}); el.appendChild(b);
+    });
+    return ()=>el.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.id===get())));
+  }
+  const syncRes=buildSeg(document.getElementById('resSeg'),RES,()=>selRes,v=>selRes=v);
+  const syncMode=buildSeg(document.getElementById('modeSeg'),MODES,()=>selMode,v=>selMode=v);
+
+  const gpusEl=document.getElementById('gpus');
+  GPUS.forEach(t=>{
+    const tier=document.createElement('div'); tier.className='tier';
+    const tn=document.createElement('div'); tn.className='tname'; tn.textContent=t.tier;
+    const row=document.createElement('div'); row.className='row';
+    t.items.forEach(g=>{
+      const b=document.createElement('button'); b.type='button'; b.dataset.id=g.id;
+      const d=document.createElement('span'); d.className='dot '+g.brand;
+      b.appendChild(d); b.appendChild(document.createTextNode(g.name+(g.est?' *':'')));
+      b.addEventListener('click',()=>{gpu=g;cap=g.cap;capInput.value=cap;sync();});
+      row.appendChild(b);
+    });
+    tier.appendChild(tn); tier.appendChild(row); gpusEl.appendChild(tier);
+  });
+  capInput.value=cap;
+  capInput.addEventListener('input',()=>{cap=+capInput.value;gpu=null;sync();});
+
+  function isActive(b){return (selRes==='all'||selRes===b.r.id)&&(selMode==='all'||selMode===b.m.id);}
+
+  function sync(){
+    syncRes(); syncMode();
+    gpusEl.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(!!gpu&&b.dataset.id===gpu.id)));
+    document.getElementById('cardName').textContent=gpu?gpu.name:'GPU limit';
+    document.getElementById('cardNote').textContent=gpu?(gpu.est?'Estimated placement':'Placed from benchmark results'):'Set by hand';
+    gpuLabel.el.textContent=gpu?gpu.name+' limit':'GPU limit';
+    document.getElementById('capVal').textContent=fmtLong(cap)+' units per second';
+    bars.forEach(b=>b.label.el.classList.toggle('over',b.total>cap));
+
+    const active=bars.filter(isActive).sort((a,b)=>a.total-b.total);
+    const fit=active.filter(b=>b.total<=cap).length;
+    document.getElementById('summary').textContent=
+      fit===active.length?(active.length===1?'This one fits under the limit.':'All '+active.length+' fit under the limit.')
+      :fit+' of '+active.length+' fit under the limit.';
+    const rows=document.getElementById('rows'); rows.innerHTML='';
+    active.forEach(b=>{
+      const fps=Math.round(cap*FPS/b.total), over=b.total>cap;
+      const li=document.createElement('li');
+      li.innerHTML='<div class="top"><span></span><span></span></div><div class="st"></div>';
+      li.querySelector('.top span:first-child').textContent=b.r.name+', '+b.m.full;
+      li.querySelector('.top span:last-child').textContent=fmt(b.total)+' units/s';
+      const st=li.querySelector('.st');
+      st.textContent=over?'Over the limit, would run at about '+fps+' fps':'Fits, room for about '+fps+' fps';
+      if(over) st.classList.add('over');
+      rows.appendChild(li);
+    });
+  }
+  sync();
+
+  // Render loop
+  const v=new THREE.Vector3();
+  function projectLabels(){
+    const w=view.clientWidth,h=view.clientHeight;
+    labels.forEach(l=>{
+      v.copy(l.pos).project(camera);
+      if(v.z>1){l.el.style.display='none';return;}
+      l.el.style.display='';
+      l.el.style.transform='translate('+((v.x+1)/2*w).toFixed(1)+'px,'+((1-v.y)/2*h).toFixed(1)+'px) translate(-50%,-50%)';
+    });
+  }
+  function frame(){
+    requestAnimationFrame(frame);
+    const k=reduceMotion?1:0.14;
+    capShown+=(cap-capShown)*k;
+    const py=capShown/SCALE;
+    plane.position.y=py; planeEdge.position.y=py; gpuLabel.pos.y=py;
+    bars.forEach(b=>{
+      const tgt=isActive(b)?1:0.1; b.op+=(tgt-b.op)*k;
+      b.parts.forEach(p=>{
+        p.mesh.material.opacity=b.op; p.mesh.material.depthWrite=b.op>0.95;
+        p.edge.material.opacity=0.35*b.op;
+      });
+      b.label.el.style.opacity=b.op<0.5?0.15:1;
+    });
+    updateCamera(); renderer.render(scene,camera); projectLabels();
+  }
+  frame();
+})();
+</script>
+</body>
+</html>
