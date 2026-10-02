@@ -153,7 +153,7 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
         <p id="summary"></p>
         <ul id="rows"></ul>
       </div>
-      <p class="foot">1 unit is the work of fully drawing one pixel the normal way on a current NVIDIA card. Path tracing uses 2 bounces, the game's default. Upscaling ratios are from NVIDIA's DLSS Programming Guide (Quality 1.5×, Balanced 1.724×, Performance 2×, Ultra Performance 3× per side; DLAA 1×); AMD FSR uses near-identical ratios. Upscaling is modelled worst case. The upscaler always costs its heaviest model (preset L), and ray traced and path traced bars pay the heavier Ray Reconstruction instead, both from NVIDIA's measured RTX 5070 times (the costliest of the cards here); FSR is assumed to cost the same. Part of every frame doesn't shrink with fewer pixels (26–33% at 4K, more at lower resolutions, depending on the mode). It's set so 4K without rays matches ComputerBase's DLSS 4.5 tests on an RTX 5070 Ti (7 games, Quality +23% and Performance +60% over native); 2K and FHD are scaled up from that estimate. Older DLSS versions and lighter presets gain more. No frame generation. Card limits come from published Witcher 3 Remastered results without rays (mainly TechSpot, September 2026), lined up so budget cards handle FHD, middle cards 2K and high-end cards 4K at 60 fps. AMD cards are weaker at path tracing than at normal drawing, so their limit is too generous for the path traced column. Running out of video memory on 8 GB cards at high resolutions isn't modelled. Estimates to show the scale of the work, not measurements.</p>
+      <p class="foot">1 unit is the work of fully drawing one pixel the normal way on a current NVIDIA card. Path tracing uses 2 bounces, the game's default. Upscaling ratios are from NVIDIA's DLSS Programming Guide (Quality 1.5×, Balanced 1.724×, Performance 2× per side; DLAA 1×; Ultra Performance is left out because many games don't offer it); AMD FSR uses near-identical ratios. Upscaling is modelled worst case. The upscaler always costs its heaviest model (preset L), and ray traced and path traced bars pay the heavier Ray Reconstruction instead, both from NVIDIA's measured RTX 5070 times (the costliest of the cards here); FSR is assumed to cost the same. Part of every frame doesn't shrink with fewer pixels (26–33% at 4K, more at lower resolutions, depending on the mode). It's set so 4K without rays matches ComputerBase's DLSS 4.5 tests on an RTX 5070 Ti (7 games, Quality +23% and Performance +60% over native); 2K and FHD are scaled up from that estimate. Older DLSS versions and lighter presets gain more. No frame generation. Card limits come from published Witcher 3 Remastered results without rays (mainly TechSpot, September 2026), lined up so budget cards handle FHD, middle cards 2K and high-end cards 4K at 60 fps. AMD cards are weaker at path tracing than at normal drawing, so their limit is too generous for the path traced column. Running out of video memory on 8 GB cards at high resolutions isn't modelled. Estimates to show the scale of the work, not measurements.</p>
     </aside>
   </div>
 
@@ -174,8 +174,7 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
     {id:'dlaa',name:'DLAA',       ratio:1},
     {id:'q',   name:'Quality',    ratio:1.5},
     {id:'b',   name:'Balanced',   ratio:1.724},
-    {id:'p',   name:'Performance',ratio:2},
-    {id:'up',  name:'Ultra Perf', ratio:3}
+    {id:'p',   name:'Performance',ratio:2}
   ];
   // Worst case upscaler run time per frame (ms) at FHD / 2K / 4K output on an RTX 5070,
   // the costliest of the cards here once turned into units.
@@ -188,9 +187,9 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
   // Share of a frame that doesn't shrink with fewer pixels, per mode at FHD / 2K / 4K.
   // 4K is fitted so the no-ray 4K bar, upscaler cost included, matches ComputerBase's DLSS 4.5
   // measurements (RTX 5070 Ti, 7-game average vs native TAA): Quality +23%, Performance +60%.
-  // Balanced sits in between; Ultra Perf keeps the Performance value (no data, no extrapolation).
+  // Balanced sits in between.
   // 2K and FHD scale the 4K values by 1.17 and 1.34: lower resolutions keep more fixed work.
-  const FIXED={q:[0.45,0.39,0.33],b:[0.39,0.34,0.29],p:[0.35,0.30,0.26],up:[0.35,0.30,0.26]};
+  const FIXED={q:[0.45,0.39,0.33],b:[0.39,0.34,0.29],p:[0.35,0.30,0.26]};
   function fixedShare(r,u){return FIXED[u.id]?FIXED[u.id][RES.indexOf(r)]:0;}
   function renderSize(r,u){const w=Math.round(r.w/u.ratio),h=Math.round(r.h/u.ratio);return {w,h,px:w*h};}
   const MODES=[
