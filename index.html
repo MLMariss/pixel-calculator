@@ -153,7 +153,7 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
         <p id="summary"></p>
         <ul id="rows"></ul>
       </div>
-      <p class="foot">1 unit is the work of fully drawing one pixel the normal way on a current NVIDIA card. Path tracing uses 2 bounces, the game's default. Upscaling ratios are from NVIDIA's DLSS Programming Guide (Quality 1.5×, Balanced 1.724×, Performance 2×, Ultra Performance 3× per side; DLAA 1×); AMD FSR uses near-identical ratios. Upscaling is modelled worst case. The upscaler always costs its heaviest model (preset L), and ray traced and path traced bars pay the heavier Ray Reconstruction instead, both from NVIDIA's measured RTX 5070 times (the costliest of the cards here); FSR is assumed to cost the same. Part of every frame doesn't shrink with fewer pixels: 47% at FHD, 41% at 2K and 35% at 4K, fitted to the smallest gains found in published tests (TechSpot's 10-game DLSS Quality average at 1080p, Alan Wake 2 path traced at 4K). Real games usually gain more. No frame generation. Card limits come from published Witcher 3 Remastered results without rays (mainly TechSpot, September 2026), lined up so budget cards handle FHD, middle cards 2K and high-end cards 4K at 60 fps. AMD cards are weaker at path tracing than at normal drawing, so their limit is too generous for the path traced column. Running out of video memory on 8 GB cards at high resolutions isn't modelled. Estimates to show the scale of the work, not measurements.</p>
+      <p class="foot">1 unit is the work of fully drawing one pixel the normal way on a current NVIDIA card. Path tracing uses 2 bounces, the game's default. Upscaling ratios are from NVIDIA's DLSS Programming Guide (Quality 1.5×, Balanced 1.724×, Performance 2×, Ultra Performance 3× per side; DLAA 1×); AMD FSR uses near-identical ratios. Upscaling is modelled worst case. The upscaler always costs its heaviest model (preset L), and ray traced and path traced bars pay the heavier Ray Reconstruction instead, both from NVIDIA's measured RTX 5070 times (the costliest of the cards here); FSR is assumed to cost the same. Part of every frame doesn't shrink with fewer pixels (26–33% at 4K, more at lower resolutions, depending on the mode). It's set so 4K without rays matches ComputerBase's DLSS 4.5 tests on an RTX 5070 Ti (7 games, Quality +23% and Performance +60% over native); 2K and FHD are scaled up from that estimate. Older DLSS versions and lighter presets gain more. No frame generation. Card limits come from published Witcher 3 Remastered results without rays (mainly TechSpot, September 2026), lined up so budget cards handle FHD, middle cards 2K and high-end cards 4K at 60 fps. AMD cards are weaker at path tracing than at normal drawing, so their limit is too generous for the path traced column. Running out of video memory on 8 GB cards at high resolutions isn't modelled. Estimates to show the scale of the work, not measurements.</p>
     </aside>
   </div>
 
@@ -185,10 +185,13 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
   const REF_CAP=390; // RTX 5070 limit, used to turn its milliseconds into units
   function upsKind(m){return m.id==='raster'?'sr':'rr';}
   function upsCost(r,m,u){return u.id==='off'?0:UPS_MS[upsKind(m)][RES.indexOf(r)]/1000*FPS*REF_CAP;}
-  // Share of a frame that doesn't shrink with fewer pixels, fitted to the smallest published gains:
-  // FHD from TechSpot's 10-game DLSS Quality average (+36%), 4K from Alan Wake 2 path traced
-  // (Quality +45%, Balanced +63%, Performance +76%), 2K in between.
-  const FIXED=[0.47,0.41,0.35];
+  // Share of a frame that doesn't shrink with fewer pixels, per mode at FHD / 2K / 4K.
+  // 4K is fitted so the no-ray 4K bar, upscaler cost included, matches ComputerBase's DLSS 4.5
+  // measurements (RTX 5070 Ti, 7-game average vs native TAA): Quality +23%, Performance +60%.
+  // Balanced sits in between; Ultra Perf keeps the Performance value (no data, no extrapolation).
+  // 2K and FHD scale the 4K values by 1.17 and 1.34: lower resolutions keep more fixed work.
+  const FIXED={q:[0.45,0.39,0.33],b:[0.39,0.34,0.29],p:[0.35,0.30,0.26],up:[0.35,0.30,0.26]};
+  function fixedShare(r,u){return FIXED[u.id]?FIXED[u.id][RES.indexOf(r)]:0;}
   function renderSize(r,u){const w=Math.round(r.w/u.ratio),h=Math.round(r.h/u.ratio);return {w,h,px:w*h};}
   const MODES=[
     {id:'raster',name:'60 fps',      full:'60 fps, no rays',w:[1,0,0]},
@@ -409,7 +412,7 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
     upsEl.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.id===ups.id)));
     bars.forEach(b=>{
       b.rs=renderSize(b.r,ups);
-      const F=ups.ratio>1?FIXED[RES.indexOf(b.r)]:0;
+      const F=fixedShare(b.r,ups);
       b.shrink=(1-F)*b.rs.px/b.r.px; b.fixed=F*b.native; b.dlss=upsCost(b.r,b.m,ups);
       b.total=b.native*b.shrink+b.fixed+b.dlss; b.label.el.textContent=fmt(b.total);
     });
@@ -418,7 +421,7 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
       const s=renderSize(r,ups), li=document.createElement('li');
       li.innerHTML='<span></span><span class="st"></span>';
       li.firstChild.textContent=r.name+' → '+s.w+'×'+s.h;
-      const F=ups.ratio>1?FIXED[RES.indexOf(r)]:0;
+      const F=fixedShare(r,ups);
       li.lastChild.textContent=(Math.round(s.px/r.px*1000)/10)+'% px'+(F?', '+Math.round(F*100)+'% fixed':'');
       dl.appendChild(li);
     });
