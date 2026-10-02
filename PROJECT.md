@@ -12,6 +12,7 @@ GPU work per second a game needs at 60 fps, against the limit of a chosen card.
   set from Witcher 3 Remastered results without rays (mainly TechSpot, Sept 2026).
 - **Upscaling (DLSS / FSR)**: shrinks bars to the pixels actually rendered;
   dashed outline shows the native-resolution bar.
+  A purple segment on top is the upscaler's own run cost, which doesn't shrink.
 
 ## Decisions
 - GPU list is 3 buckets — **Top / Mid / Budget** — with one NVIDIA and one AMD card each,
@@ -22,5 +23,11 @@ GPU work per second a game needs at 60 fps, against the limit of a chosen card.
   DLAA 1.0, Quality 1.5, Balanced 1.724, Performance 2.0, Ultra Performance 3.0
   (pixel share 100 / 44.4 / 33.6 / 25 / 11.1 %). Render size = round(native ÷ ratio) per axis.
 - Labelled "DLSS / FSR": FSR uses near-identical ratios, so one selector serves both brands.
-- Upscaler run cost (~0.5–2 ms/frame) is **not** modelled — pure pixel math; noted in the footer.
+- Pixel cut stays pure ratio math (user decision). On top, the upscaler's run cost is added
+  from NVIDIA's measured times (DLSS guide §2.4, RTX 5070 row, ms per frame at FHD/2K/4K output),
+  using the default preset per mode (§3.12): K for DLAA/Quality/Balanced, M for Performance,
+  L for Ultra Performance. Converted to units as ms × 60 fps × 390 (5070 limit).
+  FSR assumed to cost the same.
+- Not modelled yet: Ray Reconstruction (used with path tracing) and work that doesn't shrink
+  with resolution, so upscaled path tracing still looks better than it is in reality.
 - Frame generation is not modelled.

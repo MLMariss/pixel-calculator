@@ -11,6 +11,7 @@
 :root{
   --bg:#EEF1F5; --panel:#FFFFFF; --ink:#18202B; --muted:#5A6677; --line:#CBD3DD;
   --seg-draw:#5C7FAE; --seg-ray:#D9922E; --seg-bounce:#C8385A;
+  --seg-dlss:#7A5CC7;
   --gpu:#16897D; --warn:#C8385A; --grid:#B8C2CE; --edge:#18202B;
   --nv:#5E9A1E; --amd:#C23B3B;
   box-sizing:border-box;
@@ -20,14 +21,14 @@
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#141A23; --panel:#1B232F; --ink:#E6EBF2; --muted:#93A0B2; --line:#2E3A4A;
-    --seg-draw:#7FA2D1; --seg-ray:#F0AE4E; --seg-bounce:#E8587A;
+    --seg-draw:#7FA2D1; --seg-ray:#F0AE4E; --seg-bounce:#E8587A; --seg-dlss:#A68BEB;
     --gpu:#3CC9B8; --warn:#F0687F; --grid:#3A4757; --edge:#0A0E14;
     --nv:#8CC63F; --amd:#F06464;
   }
 }
 :root[data-theme="dark"]{
   --bg:#141A23; --panel:#1B232F; --ink:#E6EBF2; --muted:#93A0B2; --line:#2E3A4A;
-  --seg-draw:#7FA2D1; --seg-ray:#F0AE4E; --seg-bounce:#E8587A;
+  --seg-draw:#7FA2D1; --seg-ray:#F0AE4E; --seg-bounce:#E8587A; --seg-dlss:#A68BEB;
   --gpu:#3CC9B8; --warn:#F0687F; --grid:#3A4757; --edge:#0A0E14;
   --nv:#8CC63F; --amd:#F06464;
 }
@@ -140,6 +141,7 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
           <li><span class="sw" style="background:var(--seg-draw)"></span>Drawing the picture the normal way</li>
           <li><span class="sw" style="background:var(--seg-ray)"></span>One ray per pixel (first hit)</li>
           <li><span class="sw" style="background:var(--seg-bounce)"></span>Bounced rays (path tracing only)</li>
+          <li><span class="sw" style="background:var(--seg-dlss)"></span>Running the upscaler itself</li>
           <li><span class="sw plane" style="background:var(--gpu)"></span>Limit of the chosen card</li>
           <li><span class="sw ghost"></span>Full-resolution bar, when upscaling is on</li>
         </ul>
@@ -150,7 +152,7 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
         <p id="summary"></p>
         <ul id="rows"></ul>
       </div>
-      <p class="foot">1 unit is the work of fully drawing one pixel the normal way on a current NVIDIA card. Path tracing uses 2 bounces, the game's default. Upscaling ratios are from NVIDIA's DLSS Programming Guide (Quality 1.5×, Balanced 1.724×, Performance 2×, Ultra Performance 3× per side; DLAA 1×); AMD FSR uses near-identical ratios. The cost of running the upscaler itself (about 0.5–2 ms a frame) isn't counted, so real gains are a bit smaller. No frame generation. Card limits come from published Witcher 3 Remastered results without rays (mainly TechSpot, September 2026), lined up so budget cards handle FHD, middle cards 2K and high-end cards 4K at 60 fps. AMD cards are weaker at path tracing than at normal drawing, so their limit is too generous for the path traced column. Running out of video memory on 8 GB cards at high resolutions isn't modelled. Estimates to show the scale of the work, not measurements.</p>
+      <p class="foot">1 unit is the work of fully drawing one pixel the normal way on a current NVIDIA card. Path tracing uses 2 bounces, the game's default. Upscaling ratios are from NVIDIA's DLSS Programming Guide (Quality 1.5×, Balanced 1.724×, Performance 2×, Ultra Performance 3× per side; DLAA 1×); AMD FSR uses near-identical ratios. The upscaler's own cost is NVIDIA's measured RTX 5070 time from the same guide (K preset for DLAA, Quality and Balanced; M for Performance; L for Ultra Performance), turned into units; FSR is assumed to cost the same. Ray Reconstruction and work that doesn't shrink with resolution aren't counted, so real gains from upscaling are smaller still. No frame generation. Card limits come from published Witcher 3 Remastered results without rays (mainly TechSpot, September 2026), lined up so budget cards handle FHD, middle cards 2K and high-end cards 4K at 60 fps. AMD cards are weaker at path tracing than at normal drawing, so their limit is too generous for the path traced column. Running out of video memory on 8 GB cards at high resolutions isn't modelled. Estimates to show the scale of the work, not measurements.</p>
     </aside>
   </div>
 
@@ -167,13 +169,18 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
   RES.forEach(r=>r.px=r.w*r.h);
   // Per-side scaling ratios from NVIDIA DLSS Programming Guide, section 3.7.1
   const UPS=[
-    {id:'off', name:'Off',        ratio:1},
-    {id:'dlaa',name:'DLAA',       ratio:1},
-    {id:'q',   name:'Quality',    ratio:1.5},
-    {id:'b',   name:'Balanced',   ratio:1.724},
-    {id:'p',   name:'Performance',ratio:2},
-    {id:'up',  name:'Ultra Perf', ratio:3}
+    {id:'off', name:'Off',        ratio:1,    preset:null},
+    {id:'dlaa',name:'DLAA',       ratio:1,    preset:'K'},
+    {id:'q',   name:'Quality',    ratio:1.5,  preset:'K'},
+    {id:'b',   name:'Balanced',   ratio:1.724,preset:'K'},
+    {id:'p',   name:'Performance',ratio:2,    preset:'M'},
+    {id:'up',  name:'Ultra Perf', ratio:3,    preset:'L'}
   ];
+  // Upscaler run time per frame (ms) on an RTX 5070 at FHD / 2K / 4K output,
+  // NVIDIA DLSS Programming Guide section 2.4. Default preset per mode from section 3.12.
+  const UPS_MS={K:[0.64,1.02,2.11],M:[0.75,1.33,2.98],L:[1.17,1.87,3.87]};
+  const REF_CAP=390; // RTX 5070 limit, used to turn its milliseconds into units
+  function upsCost(r,u){return u.preset?UPS_MS[u.preset][RES.indexOf(r)]/1000*FPS*REF_CAP:0;}
   function renderSize(r,u){const w=Math.round(r.w/u.ratio),h=Math.round(r.h/u.ratio);return {w,h,px:w*h};}
   const MODES=[
     {id:'raster',name:'60 fps',      full:'60 fps, no rays',w:[1,0,0]},
@@ -251,9 +258,15 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
       const gGeo=new THREE.BoxGeometry(BW*1.02,y,BW*1.02);
       const ghost=new THREE.LineSegments(new THREE.EdgesGeometry(gGeo),ghostMat);
       ghost.computeLineDistances(); ghost.position.set(x,y/2,z); ghost.visible=false; scene.add(ghost);
+      // Upscaler cost sits on top and doesn't shrink with the render size
+      const dGeo=new THREE.BoxGeometry(BW,1,BW);
+      const dMesh=new THREE.Mesh(dGeo,new THREE.MeshStandardMaterial({roughness:0.55,metalness:0.05,transparent:true,opacity:1}));
+      const dEdge=new THREE.LineSegments(new THREE.EdgesGeometry(dGeo),new THREE.LineBasicMaterial({transparent:true,opacity:0.35}));
+      dMesh.position.set(x,0,z); dEdge.position.set(x,0,z); dMesh.visible=dEdge.visible=false;
+      scene.add(dMesh); scene.add(dEdge);
       const native=r.px*FPS*m.w.reduce((a,b)=>a+b,0)/1e6;
       const label=addLabel(fmt(native),new THREE.Vector3(x,y+0.42,z),'val');
-      bars.push({r,m,parts,group,ghost,height:y,native,total:native,label,op:1});
+      bars.push({r,m,parts,group,ghost,dMesh,dEdge,dShown:0,dlss:0,height:y,native,total:native,label,op:1});
     });
   });
 
@@ -292,6 +305,7 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
     bars.forEach(b=>b.parts.forEach(p=>{p.mesh.material.color.set(seg[p.si]);p.edge.material.color.set(edge);}));
     planeMat.color.set(css('--gpu')); planeEdge.material.color.set(css('--gpu'));
     axisLine.material.color.set(css('--muted')); tickMat.color.set(css('--muted')); ghostMat.color.set(css('--muted'));
+    bars.forEach(b=>{b.dMesh.material.color.set(css('--seg-dlss'));b.dEdge.material.color.set(edge);});
     makeGrid(css('--grid'));
   }
   applyTheme();
@@ -369,19 +383,19 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
   function sync(){
     syncRes(); syncMode();
     upsEl.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.id===ups.id)));
-    bars.forEach(b=>{b.rs=renderSize(b.r,ups);b.total=b.native*b.rs.px/b.r.px;b.label.el.textContent=fmt(b.total);});
+    bars.forEach(b=>{b.rs=renderSize(b.r,ups);b.dlss=upsCost(b.r,ups);b.total=b.native*b.rs.px/b.r.px+b.dlss;b.label.el.textContent=fmt(b.total);});
     const dl=document.getElementById('dlssRes'); dl.innerHTML='';
     if(ups.id!=='off') RES.forEach(r=>{
       const s=renderSize(r,ups), li=document.createElement('li');
       li.innerHTML='<span></span><span class="st"></span>';
-      li.firstChild.textContent=r.name+' drawn at '+s.w+'×'+s.h;
-      li.lastChild.textContent=(Math.round(s.px/r.px*1000)/10)+'% of pixels';
+      li.firstChild.textContent=r.name+' → '+s.w+'×'+s.h;
+      li.lastChild.textContent=(Math.round(s.px/r.px*1000)/10)+'% px + '+fmt(upsCost(r,ups))+' upscaler';
       dl.appendChild(li);
     });
     document.getElementById('dlssNote').textContent=
       ups.id==='off'?'Every pixel is drawn at full resolution.'
-      :ups.id==='dlaa'?'DLAA draws every pixel and only uses the AI for smoothing edges, so the work stays the same. AMD calls this Native AA.'
-      :'The card draws '+(Math.round(10000/(ups.ratio*ups.ratio))/100)+'% of the pixels ('+ups.ratio+'× smaller each side) and the upscaler fills in the rest. On AMD cards FSR does the same job.';
+      :ups.id==='dlaa'?'DLAA draws every pixel and only uses the AI for smoothing edges, so the drawing work stays the same and the upscaler cost (preset K) comes on top. AMD calls this Native AA.'
+      :'The card draws '+(Math.round(10000/(ups.ratio*ups.ratio))/100)+'% of the pixels ('+Math.round(1000/ups.ratio)/10+'% each side) and the upscaler fills in the rest, which costs extra work (preset '+ups.preset+', the purple top of each bar). On AMD cards FSR does the same job.';
     gpusEl.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(!!gpu&&b.dataset.id===gpu.id)));
     document.getElementById('cardName').textContent=gpu?gpu.name:'GPU limit';
     document.getElementById('cardNote').textContent=(gpu?'Placed from benchmark results':'Set by hand')+(ups.id==='off'?'':' · '+(ups.id==='dlaa'?'DLAA':'Upscaling: '+ups.name));
@@ -430,8 +444,15 @@ input[type=range]{width:100%;accent-color:var(--gpu);margin:6px 0 2px}
     ghostMat.opacity=Math.min(0.8,(1-upsShown)*4);
     bars.forEach(b=>{
       const f=b.rs.px/b.r.px, sy=f+(upsShown-1/(ups.ratio*ups.ratio));
-      b.group.scale.y=Math.max(0.001,sy); b.label.pos.y=b.height*sy+0.42;
+      b.group.scale.y=Math.max(0.001,sy);
       b.ghost.visible=upsShown<0.995 && b.op>0.5;
+      b.dShown+=(b.dlss-b.dShown)*k;
+      const dh=b.dShown/SCALE, base=b.height*sy;
+      const dOn=dh>0.002;
+      b.dMesh.visible=b.dEdge.visible=dOn;
+      if(dOn){b.dMesh.scale.y=b.dEdge.scale.y=dh;b.dMesh.position.y=b.dEdge.position.y=base+dh/2;}
+      b.dMesh.material.opacity=b.op; b.dMesh.material.depthWrite=b.op>0.95; b.dEdge.material.opacity=0.35*b.op;
+      b.label.pos.y=base+dh+0.42;
       const tgt=isActive(b)?1:0.1; b.op+=(tgt-b.op)*k;
       b.parts.forEach(p=>{
         p.mesh.material.opacity=b.op; p.mesh.material.depthWrite=b.op>0.95;
