@@ -12,7 +12,7 @@ GPU work per second a game needs at 60 fps, against the limit of a chosen card.
   set from Witcher 3 Remastered results without rays (mainly TechSpot, Sept 2026).
 - **Upscaling (DLSS / FSR)**: shrinks bars to the pixels actually rendered;
   dashed outline shows the native-resolution bar.
-  A purple segment on top is the upscaler's own run cost, which doesn't shrink.
+  On top: grey = work that doesn't shrink, purple = the upscaler's own run cost.
 
 ## Decisions
 - GPU list is 3 buckets — **Top / Mid / Budget** — with one NVIDIA and one AMD card each,
@@ -23,11 +23,15 @@ GPU work per second a game needs at 60 fps, against the limit of a chosen card.
   DLAA 1.0, Quality 1.5, Balanced 1.724, Performance 2.0, Ultra Performance 3.0
   (pixel share 100 / 44.4 / 33.6 / 25 / 11.1 %). Render size = round(native ÷ ratio) per axis.
 - Labelled "DLSS / FSR": FSR uses near-identical ratios, so one selector serves both brands.
-- Pixel cut stays pure ratio math (user decision). On top, the upscaler's run cost is added
-  from NVIDIA's measured times (DLSS guide §2.4, RTX 5070 row, ms per frame at FHD/2K/4K output),
-  using the default preset per mode (§3.12): K for DLAA/Quality/Balanced, M for Performance,
-  L for Ultra Performance. Converted to units as ms × 60 fps × 390 (5070 limit).
-  FSR assumed to cost the same.
-- Not modelled yet: Ray Reconstruction (used with path tracing) and work that doesn't shrink
-  with resolution, so upscaled path tracing still looks better than it is in reality.
+- **Worst case always** (user decision: don't sell dreams). When upscaling is on, each bar is
+  shrunk pixel work + fixed work + upscaler cost:
+  - Pixel cut: pure ratio math above.
+  - Upscaler cost: heaviest preset L for every mode (no-ray column); ray traced and path traced
+    columns pay Ray Reconstruction instead. RTX 5070 measured times (costliest of our cards in units):
+    SR-L 1.17/1.87/3.87 ms, RR 1.59/2.72/5.84 ms at FHD/2K/4K (DLSS guide §2.4, DLSS-RR guide §2.2).
+    Converted to units as ms × 60 fps × 390 (5070 limit). FSR assumed to cost the same.
+  - Fixed share that doesn't shrink: 47% FHD, 41% 2K, 35% 4K, fitted to the smallest gains found:
+    TechSpot 10-game DLSS Quality avg at 1080p (+36%, RTX 3060) and Alan Wake 2 path traced at 4K
+    (Quality +45%, Balanced +63%, Performance +76%). 2K interpolated. Figures came via search
+    summaries (source pages blocked from the build environment) — worth re-checking.
 - Frame generation is not modelled.
